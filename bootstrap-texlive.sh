@@ -47,14 +47,15 @@ echo "Installing TeX Live into: $TL_ROOT"
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
-echo "Downloading installer..."
-curl -sSL "https://mirror.ctan.org/systems/texlive/tlnet/install-tl-unx.tar.gz" \
-    | tar -xz -C "$TMPDIR"
+MIRROR="https://ftp.tu-chemnitz.de/pub/tex/systems/texlive/tlnet"
+
+echo "Downloading installer from $MIRROR..."
+curl -sSL "$MIRROR/install-tl-unx.tar.gz" | tar -xz -C "$TMPDIR"
 
 INSTALLER_DIR=$(find "$TMPDIR" -maxdepth 1 -type d -name "install-tl-*")
 cd "$INSTALLER_DIR"
 
 echo "Running installer..."
-./install-tl --profile="$TL_PROFILE"
+./install-tl --profile="$TL_PROFILE" --repository "$MIRROR"
 
 echo "TeX Live installation complete."
