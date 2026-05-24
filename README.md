@@ -99,31 +99,50 @@ conda remove --name latex-env --all
 
 ### Adding packages to this environment
 
-When you've installed new packages locally:
+When you've installed new packages locally, regenerate the tracked files:
 
 ```bash
 # Conda dependencies (explicit installs only, no transitive deps)
 conda env export --from-history -n latex-env > latex-env.yml
 
-# tlmgr packages
-tlmgr list --only-installed | grep -oP '(?<=i )[^:\s]+' > tlmgr-packages.txt
+# tlmgr packages: export only packages installed on top of scheme-small
+# Define recursive collection expander
+expand() {
+    local pkg="$1"
+    tlmgr info --list "$pkg" 2>/dev/null \
+        | awk '/^depends:/{found=1; next} found && /^\t/{print $1} found && !/^\t/{found=0}' \
+        | while read dep; do
+            if [[ "$dep" == collection-* ]]; then
+                expand "$dep"
+            else
+                echo "$dep"
+            fi
+        done
+}
+
+# Expand baseline scheme into a reference list
+{
+    expand scheme-small
+    expand collection-fontsrecommended
+    expand collection-pictures
+} | sort -u > /tmp/scheme-baseline.txt
+
+# Diff against full installed list, stripping platform packages and schemes
+comm -23 \
+    <(tlmgr list --only-installed | grep -oP '(?<=i )[^:\s]+' \
+        | grep -v '\.x86_64-linux$' \
+        | grep -v '^collection-' \
+        | grep -v '^scheme-' \
+        | sort) \
+    /tmp/scheme-baseline.txt \
+    > tlmgr-packages.txt
 
 git add latex-env.yml tlmgr-packages.txt
 git commit -m "add <package>"
 git push
 ```
 
-### Using updated packages in a project (devcontainer)
-
-When this repo is updated and you want to pull the latest changes into a
-project that uses it as a submodule:
-
-```bash
-git submodule update --remote .devcontainer/latex-env
-git add .devcontainer/latex-env
-git commit -m "bump latex-env: <brief description>"
-git push
-```
+Note: if you ever install an additional collection (e.g. `tlmgr install collection-science`), add it to the `expand` block above so its contents are excluded from `tlmgr-packages.txt`.
 
 Then rebuild the devcontainer in VSCode: right-click the remote indicator
 (bottom-left) → **Rebuild Container**.
