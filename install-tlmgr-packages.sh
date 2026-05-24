@@ -3,6 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGES_FILE="$SCRIPT_DIR/tlmgr-packages.txt"
+PRIMARY_MIRROR="https://mirror.ctan.org/systems/texlive/tlnet"
+FALLBACK_MIRROR="https://ftp.tu-chemnitz.de/pub/tex/systems/texlive/tlnet"
 
 if [ ! -f "$PACKAGES_FILE" ]; then
     echo "Error: $PACKAGES_FILE not found." >&2
@@ -16,12 +18,7 @@ if [ ${#PACKAGES[@]} -eq 0 ]; then
     exit 0
 fi
 
-# Try to resolve a fresh mirror from CTAN GeoDNS, with fallback if needed
-FALLBACK_MIRROR="https://ftp.tu-chemnitz.de/pub/tex/systems/texlive/tlnet"
-
 echo "Resolving CTAN mirror..."
-
-PRIMARY_MIRROR="https://mirror.ctan.org/systems/texlive/tlnet"
 
 set_repo() {
     tlmgr option repository "$1"
@@ -42,16 +39,16 @@ echo "Verifying repository consistency..."
 if ! tlmgr update --list >/dev/null 2>&1; then
     echo "Repository appears broken or incompatible. Trying fallback..." >&2
 
-    if ! set_repo "$FALLBACK_MIRROR"; then
+    if ! tlmgr option repository "$FALLBACK_MIRROR"; then
         echo "ERROR: fallback repository also failed" >&2
         exit 1
     fi
 
-    tlmgr update --list >/dev/null 2>&1 || {
+    if ! tlmgr update --list >/dev/null 2>&1; then
         echo "ERROR: both CTAN and fallback mirrors are unusable" >&2
         exit 1
-    }
-}
+    fi
+fi
 
 echo "Repository successfully configured."
 
