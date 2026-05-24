@@ -1,0 +1,16 @@
+# Environment for chemistry workflows
+name: latex-env
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - perl
+  - curl
+  - bash
+  - pandoc
+  - pygments
+  - ghostscript
+  - imagemagick
+  - pip
+  - pip:
+      - cairosvg
