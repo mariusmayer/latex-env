@@ -16,28 +16,44 @@ if [ ${#PACKAGES[@]} -eq 0 ]; then
     exit 0
 fi
 
-# Try to resolve a fresh mirror from mirror.ctan.org (GeoDNS), but fall back
-# to a known-reliable mirror if resolution fails or returns a stale server.
+# Try to resolve a fresh mirror from CTAN GeoDNS, with fallback if needed
 FALLBACK_MIRROR="https://ftp.tu-chemnitz.de/pub/tex/systems/texlive/tlnet"
-TMPLOG=$(mktemp)
-trap 'rm -f "$TMPLOG"' EXIT
 
-echo "Updating tlmgr (resolving mirror)..."
-tlmgr --repository https://mirror.ctan.org/systems/texlive/tlnet \
-    update --self 2>&1 | tee "$TMPLOG" || true
+echo "Resolving CTAN mirror..."
 
-RESOLVED_REPO=$(grep -oE 'package repository https?://[^ ]+' "$TMPLOG" \
-    | head -1 | grep -oE 'https?://[^ ]+')
+PRIMARY_MIRROR="https://mirror.ctan.org/systems/texlive/tlnet"
 
-if [ -n "$RESOLVED_REPO" ]; then
-    echo "Locking to resolved mirror: $RESOLVED_REPO"
-    MIRROR="$RESOLVED_REPO"
-else
-    echo "Could not resolve mirror, falling back to: $FALLBACK_MIRROR"
-    MIRROR="$FALLBACK_MIRROR"
+set_repo() {
+    tlmgr option repository "$1"
+}
+
+echo "Setting TeX Live repository to: $PRIMARY_MIRROR"
+
+if ! set_repo "$PRIMARY_MIRROR"; then
+    echo "GeoDNS mirror failed, falling back to: $FALLBACK_MIRROR" >&2
+
+    if ! set_repo "$FALLBACK_MIRROR"; then
+        echo "ERROR: could not set any TeX Live repository" >&2
+        exit 1
+    fi
 fi
 
-tlmgr option repository "$MIRROR"
+echo "Verifying repository consistency..."
+if ! tlmgr update --list >/dev/null 2>&1; then
+    echo "Repository appears broken or incompatible. Trying fallback..." >&2
+
+    if ! set_repo "$FALLBACK_MIRROR"; then
+        echo "ERROR: fallback repository also failed" >&2
+        exit 1
+    fi
+
+    tlmgr update --list >/dev/null 2>&1 || {
+        echo "ERROR: both CTAN and fallback mirrors are unusable" >&2
+        exit 1
+    }
+}
+
+echo "Repository successfully configured."
 
 total=${#PACKAGES[@]}
 echo "Installing $total package(s)..."
