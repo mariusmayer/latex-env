@@ -150,8 +150,11 @@ Then rebuild the devcontainer in VSCode: right-click the remote indicator
 On other machines, pull and update the submodule:
 
 ```bash
-git pull
-git submodule update --init --recursive
+# Inside the project repo (not inside the submodule)
+git submodule update --remote --init --recursive .devcontainer/latex-env
+git add .devcontainer/latex-env
+git commit -m "bump latex-env"
+git push
 ```
 
 ---
