@@ -32,7 +32,6 @@ lualatex-math
 makecmds
 mhchem
 multirow
-nets
 nicematrix
 overpic
 paralist
@@ -48,13 +47,11 @@ svg
 svn-prov
 symbol
 texlive-scripts-extra
-through
 titlesec
 tocloft
 todonotes
 translations
 transparent
-trees
 trimspaces
 was
 wrapfig
