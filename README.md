@@ -36,6 +36,7 @@ The environment provides:
 | --------------------------- | --------------------------------------------------- |
 | `latex-env.yml`             | Conda environment specification                     |
 | `tlmgr-packages.txt`        | Additional TeX Live packages managed via `tlmgr`    |
+| `install.sh`                | Unified one-command bootstrap (local + devcontainer)|
 | `bootstrap-texlive.sh`      | Installs TeX Live into the active Conda environment |
 | `install-tlmgr-packages.sh` | Installs packages listed in `tlmgr-packages.txt`    |
 | `texlive-activate.sh`       | Conda activation hook for TeX Live PATH setup       |
@@ -64,15 +65,17 @@ In this setup:
 * the **project repository** owns editor configuration and orchestration
 * `latex-env` provides the reusable runtime/tooling layer
 
-The project-side `install.sh` bootstraps:
+The `latex-env` submodule ships a single `install.sh` that bootstraps:
 
-1. Miniconda
+1. Miniconda (devcontainer only)
 2. the Conda environment
 3. TeX Live
-4. all tracked `tlmgr` packages
-5. activation hooks
+4. activation hooks
+5. all tracked `tlmgr` packages
 
-Once configured, opening the project in VS Code and selecting **Reopen in Container** is sufficient.
+The project-side `.devcontainer/install.sh` is a thin wrapper that delegates to
+`latex-env/install.sh`. Once configured, opening the project in VS Code and
+selecting **Reopen in Container** is sufficient.
 
 ---
 
@@ -137,96 +140,29 @@ This ensures submodules update automatically during pull operations.
 
 # Example install.sh
 
-Example project-side bootstrap script:
+The submodule ships a unified `install.sh`, so the project-side script is just a
+thin wrapper that initializes the submodule if needed and delegates to it:
 
 ```bash
 #!/usr/bin/env bash
-# .devcontainer/install.sh
-# Devcontainer bootstrap orchestrator. Calls into the latex-env submodule.
-
+# .devcontainer/install.sh — thin wrapper around the latex-env submodule.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_DIR="$SCRIPT_DIR/latex-env"
 
-echo "════════════════════════════════════════════════════════"
-echo " latex-env devcontainer bootstrap"
-echo "════════════════════════════════════════════════════════"
-
-# ── 1. Miniconda ─────────────────────────────────────────────
-CONDA_DIR="/opt/conda"
-
-if [ ! -f "$CONDA_DIR/bin/conda" ]; then
-    echo "── [1/4] Installing Miniconda ──────────────────────────"
-
-    ARCH=$(uname -m)
-    TMP=$(mktemp --suffix=.sh)
-    trap 'rm -f "$TMP"' EXIT
-
-    curl -sSL \
-        "https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-${ARCH}.sh" \
-        -o "$TMP"
-
-    sudo bash "$TMP" -b -p "$CONDA_DIR"
-    sudo chown -R vscode:vscode "$CONDA_DIR"
-else
-    echo "── [1/4] Miniconda already present, skipping ───────────"
+# Safety net for contexts where `initializeCommand` did not run (e.g. Codespaces).
+if [ ! -f "$ENV_DIR/install.sh" ]; then
+    echo "latex-env submodule missing — initializing…"
+    REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+    if [ -n "$REPO_ROOT" ]; then
+        git -C "$REPO_ROOT" submodule update --init --recursive .devcontainer/latex-env
+    else
+        git submodule update --init --recursive "$ENV_DIR"
+    fi
 fi
 
-source "$CONDA_DIR/etc/profile.d/conda.sh"
-
-conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
-conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
-
-conda config --set always_yes true
-conda config --set channel_priority strict
-
-# ── 2. Conda environment ─────────────────────────────────────
-echo "── [2/4] Conda environment ─────────────────────────────"
-
-if conda env list | grep -q "^latex-env "; then
-    conda env update -n latex-env -f "$ENV_DIR/latex-env.yml" --prune
-else
-    conda env create -f "$ENV_DIR/latex-env.yml"
-fi
-
-conda activate latex-env
-
-# ── 3. TeX Live ──────────────────────────────────────────────
-echo "── [3/4] TeX Live ──────────────────────────────────────"
-
-if find "$CONDA_PREFIX/texlive/bin" -name "latexmk" 2>/dev/null | grep -q .; then
-    echo "  Already installed, skipping bootstrap."
-else
-    bash "$ENV_DIR/bootstrap-texlive.sh"
-fi
-
-# ── 4. Activation hooks ──────────────────────────────────────
-echo "── [4/4] Installing activation hooks ───────────────────"
-
-mkdir -p "$CONDA_PREFIX/etc/conda/activate.d"
-mkdir -p "$CONDA_PREFIX/etc/conda/deactivate.d"
-
-cp "$ENV_DIR/texlive-activate.sh" \
-   "$CONDA_PREFIX/etc/conda/activate.d/texlive.sh"
-
-cp "$ENV_DIR/texlive-deactivate.sh" \
-   "$CONDA_PREFIX/etc/conda/deactivate.d/texlive.sh"
-
-TL_BIN="$(find "$CONDA_PREFIX/texlive/bin" -mindepth 1 -type d | head -1)"
-
-if [ -z "$TL_BIN" ]; then
-    echo "Error: could not find TeX Live bin directory." >&2
-    exit 1
-fi
-
-export PATH="$TL_BIN:$PATH"
-
-bash "$ENV_DIR/install-tlmgr-packages.sh"
-
-echo "════════════════════════════════════════════════════════"
-echo " Bootstrap complete."
-echo "════════════════════════════════════════════════════════"
+exec bash "$ENV_DIR/install.sh" "$@"
 ```
 
 ---
@@ -251,7 +187,28 @@ git config submodule.recurse true
 
 # Standalone local installation
 
-## 1. Create and activate the Conda environment
+## One-command install
+
+```bash
+./install.sh
+```
+
+This single command:
+
+1. creates or updates the `latex-env` Conda environment
+2. bootstraps TeX Live into `$CONDA_PREFIX/texlive` (skipped if already present)
+3. installs the activation hooks
+4. installs all tracked `tlmgr` packages
+
+It auto-detects a local conda/mamba installation (or a devcontainer, where it
+installs Miniconda itself) and is safe to re-run.
+
+## Manual steps (reference)
+
+The commands below are the individual steps that `install.sh` runs. They are
+kept here for reference and troubleshooting.
+
+### 1. Create and activate the Conda environment
 
 ```bash
 conda env create -f latex-env.yml
@@ -260,7 +217,7 @@ conda activate latex-env
 
 ---
 
-## 2. Install TeX Live
+### 2. Install TeX Live
 
 ```bash
 chmod +x bootstrap-texlive.sh
@@ -270,7 +227,7 @@ chmod +x bootstrap-texlive.sh
 Installs a minimal TeX Live (`scheme-small` plus recommended collections)
 into `$CONDA_PREFIX/texlive`.
 
-## 3. Install activation hooks
+### 3. Install activation hooks
 
 ```bash
 mkdir -p "$CONDA_PREFIX/etc/conda/activate.d"
@@ -279,7 +236,7 @@ cp texlive-activate.sh "$CONDA_PREFIX/etc/conda/activate.d/texlive.sh"
 cp texlive-deactivate.sh "$CONDA_PREFIX/etc/conda/deactivate.d/texlive.sh"
 ```
 
-## 4. Re-activate to refresh PATH
+### 4. Re-activate to refresh PATH
 
 ```bash
 conda deactivate
@@ -288,7 +245,7 @@ conda activate latex-env
 
 ---
 
-## 5. Install tracked TeX Live packages
+### 5. Install tracked TeX Live packages
 
 ```bash
 chmod +x install-tlmgr-packages.sh
